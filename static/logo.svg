@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" stroke="#9A2400" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Fraud Aid">
+  <g transform="rotate(-3 60 62)">
+    <!-- Offset flat tint, like a misregistered print layer -->
+    <path d="M19 58C15 44 15 28 21 10c1-2.500 4-2.800 6-1.200L45 24c9-2.500 21-2.200 30 .5L88 15c2-1.500 4.500-1.200 5.500.8L97.500 20.500C101 30 102.500 44 100.500 56c5.500 7 7.500 17 3.500 26-7 18-25 25.500-43 25.500S24 100 17 82c-4-10-3-18 2-24Z" transform="translate(4 4)" fill="#9A2400" fill-opacity=".13" stroke="none"/>
+
+    <!-- Main inked outline, heavier. One ear is taller, the other is folded. -->
+    <path d="M19 58C15 44 15 28 21 10c1-2.500 4-2.800 6-1.200L45 24c9-2.500 21-2.200 30 .5L88 15c2-1.500 4.500-1.200 5.500.8L97.500 20.500C101 30 102.500 44 100.500 56c5.500 7 7.500 17 3.500 26-7 18-25 25.500-43 25.500S24 100 17 82c-4-10-3-18 2-24Z" stroke-width="4.600"/>
+    <!-- Second, thinner pass that drifts off the first and breaks -->
+    <path d="M19 58C15 44 15 28 21 10c1-2.500 4-2.800 6-1.200L45 24c9-2.500 21-2.200 30 .5L88 15c2-1.500 4.500-1.200 5.500.8L97.500 20.500C101 30 102.500 44 100.500 56c5.500 7 7.500 17 3.500 26-7 18-25 25.500-43 25.500S24 100 17 82c-4-10-3-18 2-24Z" transform="translate(-2.200 -1.600)" stroke-width="1.400" stroke-dasharray="52 7 26 11 70 9 40 14"/>
+
+    <!-- Ear hatching: three strokes on the tall ear, two on the folded one -->
+    <g stroke-width="2.200">
+      <path d="M25.500 22l5 6M28.500 17.500 35 25M25 30l4 4.500"/>
+      <path d="M92 21.500 88.500 27M95 26l-3 5"/>
+    </g>
+
+    <!-- A first-aid cross inked on the forehead by hand: equal arms, a little crooked -->
+    <g transform="rotate(-9 60.800 46.200)">
+      <path d="M60.300 39C61 43.500 60.200 48.500 61.500 53.400" stroke-width="4.600"/>
+      <path d="M53.600 45.600C58 46.600 62.500 45.200 68 47.400" stroke-width="4.600"/>
+    </g>
+
+    <!-- Eyes: not quite the same size or height -->
+    <ellipse cx="40" cy="67" rx="3.800" ry="5" fill="#9A2400" stroke="none"/>
+    <ellipse cx="81.500" cy="65.500" rx="3.400" ry="4.600" fill="#9A2400" stroke="none"/>
+    <circle cx="41.300" cy="65" r="1.200" fill="#fff" stroke="none"/>
+    <circle cx="82.600" cy="63.700" r="1.100" fill="#fff" stroke="none"/>
+
+    <!-- Cheek hatching: three on the left, two on the right -->
+    <g stroke-width="2">
+      <path d="M26 80l3.500-6M30.500 81.500l3.500-6M35 82.500l3-5"/>
+      <path d="M92.500 79l-3-5.500M88 81l-3-5.500"/>
+    </g>
+
+    <!-- Nose and mouth, a touch off-centre with an uneven smile -->
+    <path d="M56.500 75.500c1.500-1 7.500-1 9 0 0 2.500-2.700 5-4.500 6-1.800-1-4.500-3.500-4.500-6Z" fill="#9A2400" stroke-width="1.400"/>
+    <path d="M61 81.500v3M61 84.500c-2.500 4.500-8 4.500-9.500 1M61 84.500c1.800 3.200 6 3.800 7.800 1.200" stroke-width="2.200"/>
+
+    <!-- Whiskers: three on the left, two long and one short on the right -->
+    <g stroke-width="2">
+      <path d="M14 76C9 75 5.500 75.200 2.500 76.800M14.500 82C10 83.200 6.500 84.500 3.500 87M16 70c-4.500-2.500-8-3.500-11.500-3.500"/>
+      <path d="M106 75c5-.8 8.500-.5 11.500 1.200M105 81.500c5 1.500 8.500 3.200 11.200 6.300M104 69.500c3-1.500 5.500-2 7.500-1.800"/>
+    </g>
+  </g>
+</svg>
