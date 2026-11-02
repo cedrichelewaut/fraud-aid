@@ -30,11 +30,13 @@ def main() -> None:
     for f in (ROOT / "static").iterdir():
         if f.is_dir():
             shutil.copytree(f, out / f.name)
+        elif f.suffix == ".css":
+            (out / f.name).write_text(f.read_text().replace('url("/fonts/', 'url("fonts/'))
         elif f.suffix in {".html", ".js"}:
             t = f.read_text()
             t = re.sub(r'(href|src)="/(?!/)', r'\1="', t)
             t = t.replace('href=""', 'href="./"')
-            t = t.replace('fetch("/logo.svg")', 'fetch("logo.svg")')
+            t = t.replace('"/logo.svg"', '"logo.svg"')
             t = t.replace("`${location.origin}/status.html#", "`${location.origin}${location.pathname.replace(/[^/]*$/, '')}status.html#")
             if f.suffix == ".html":
                 t = t.replace("</head>", '  <script src="demo.js"></script>\n</head>')
