@@ -7,6 +7,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
+from .i18n import BASIS, HEADLINES, pick
+
 Tri = Literal["yes", "no", "unclear"]
 
 
@@ -26,34 +28,7 @@ class Verdict(BaseModel):
     basis: str
 
 
-BASIS = {
-    "strong": (
-        "When a payment was not approved by you, Belgian payment law (PSD2) requires the bank to refund it "
-        "promptly. The bank can only recover the money from you later if it proves gross negligence, and "
-        "recent Belgian and EU court rulings read that test strictly."
-    ),
-    "possible": (
-        "You approved the payment, so the bank is not automatically liable today. New EU rules (PSD3 and PSR, "
-        "politically agreed in November 2025) are set to make banks refund victims of bank impersonation. "
-        "Until they apply, success depends on the details and on how the bank and the ombudsman see your case."
-    ),
-    "unlikely": (
-        "You approved the payment yourself, and current Belgian law generally does not make the bank refund "
-        "payments a customer authorised, even when they were tricked. Acting fast can still help: the "
-        "receiving bank can sometimes freeze what is left."
-    ),
-    "unclear": "More details are needed before it is clear where the person stands.",
-}
-
-HEADLINES = {
-    "strong": "Probably entitled to a refund",
-    "possible": "May have a claim",
-    "unlikely": "A refund is unlikely under current rules",
-    "unclear": "More information needed",
-}
-
-
-def decide(facts: Facts, amount_override: Optional[float] = None) -> Verdict:
+def decide(facts: Facts, amount_override: Optional[float] = None, lang: str = "en") -> Verdict:
     authorised = facts.payment_authorised_by_victim
     if facts.how == "phishing_link" and authorised != "yes":
         level = "strong"
@@ -71,7 +46,7 @@ def decide(facts: Facts, amount_override: Optional[float] = None) -> Verdict:
 
     return Verdict(
         level=level,
-        headline=HEADLINES[level],
+        headline=pick(HEADLINES, lang)[level],
         up_to_eur=up_to,
-        basis=BASIS[level],
+        basis=pick(BASIS, lang)[level],
     )

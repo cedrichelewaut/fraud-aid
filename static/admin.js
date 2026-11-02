@@ -9,7 +9,7 @@ function el(tag, props = {}, ...kids) {
 }
 const api = (path, opts = {}) => fetch(path, { ...opts, headers: { "X-Admin-Token": token, "Content-Type": "application/json", ...(opts.headers || {}) } });
 const when = (iso) => new Date(iso).toLocaleString("en-BE", { dateStyle: "medium", timeStyle: "short" });
-const eur = (n) => (n == null ? "unknown" : new Intl.NumberFormat("en-BE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n));
+const eur = (n) => (n == null ? "unknown" : new Intl.NumberFormat("en-BE", { style: "currency", currency: "EUR", minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }).format(n));
 
 function login(msg = "") {
   const input = el("input", { className: "text", type: "password", placeholder: "Admin token", ariaLabel: "Admin token", autocomplete: "off" });
@@ -85,7 +85,7 @@ async function detail(id) {
   });
 
   const events = el("ol", { className: "timeline" });
-  [...c.events].reverse().forEach((e) => events.append(el("li", {}, el("span", { className: "label quiet" }, `${when(e.at)} ${e.public ? "" : "(internal)"}`), el("span", {}, e.note))));
+  [...c.events].reverse().forEach((e) => events.append(el("li", {}, el("span", { className: "label quiet" }, `${when(e.at)} ${e.public ? "" : "(internal)"}`), el("span", {}, e.note.startsWith("status:") ? "Status: " + e.note.slice(7) : e.note))));
 
   app.replaceChildren(
     el(

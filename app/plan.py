@@ -12,6 +12,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .assess import Facts, Verdict, decide
+from .i18n import PLAN, pick
 from .tools import FALLBACK_STORY, POLICE, build_letter, build_police_report, lang_of, money
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -36,7 +37,9 @@ class Answers(BaseModel):
     told_bank: bool = False
     told_police: bool = False
     scammer_details: str = Field(default="", max_length=500)
-    language: Literal["en", "nl", "fr"] = "nl"
+    language: Literal["en", "nl", "fr"] = "nl"  # language of the documents
+    ui: Literal["en", "nl", "fr"] = "en"  # language of the plan text
+    summary: Optional[str] = Field(default=None, max_length=3000)  # reuse a statement already written
 
 
 class Action(BaseModel):
@@ -69,6 +72,24 @@ class Plan(BaseModel):
 LANG_NAME = {"en": "English", "nl": "Dutch", "fr": "French"}
 
 
+def clean_statement(text: str) -> str:
+    """The model sometimes adds titles, markdown or a second version. Keep one plain paragraph."""
+    text = text.replace("**", "").replace("__", "").split("---")[0]
+    kept = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if len(line) <= 70 and line.endswith(":") or line.endswith(" :"):
+            continue  # a heading such as "Statement for the bank:"
+        kept.append(line.lstrip("-*\u2022 ").strip())
+    out = " ".join(" ".join(kept).split())
+    if len(out) > 900:  # cut at the last full sentence
+        cut = out[:900]
+        out = cut[: max(cut.rfind(". "), cut.rfind("."))] + "." if "." in cut else cut
+    return out
+
+
 async def summarize(a: Answers) -> str:
     """First-person factual statement in the document language. Falls back to the user's own words."""
     lang = lang_of(a.language)
@@ -77,7 +98,7 @@ async def summarize(a: Answers) -> str:
     facts = [
         f"How it started: {POLICE['en']['how'][a.how]}",
         f"Pretended to be: {a.impersonated}" if a.impersonated else None,
-        f"Amount lost: EUR {a.amount_eur:,.0f}" if a.amount_eur else None,
+        f"Amount lost: EUR {money(a.amount_eur, 'en')}" if a.amount_eur else None,
         f"Paid by: {POLICE['en']['method'][a.method]}",
         f"Approved the payment themselves: {a.authorised}",
     ]
@@ -85,26 +106,27 @@ async def summarize(a: Answers) -> str:
     prompt = (
         f"Write a short factual statement of 3 to 5 sentences in {LANG_NAME[lang]}, in the first person, "
         "for a bank and the police. Use only the facts and the account below. Do not add names, numbers, dates, denials or any detail that is not given, "
-        "and do not mention what was not said. No opinions, no legal claims, no greetings. Output only the statement.\n\n"
+        "and do not mention what was not said. No opinions, no legal claims, no greetings. Write exactly one paragraph of plain text of at most 4 sentences: say each thing once, do not repeat yourself, and do not add consequences that are not stated (for example that an account was emptied). No title, no markdown, no list and no second version. Output only that paragraph.\n\n"
         f"Facts:\n{facts_text}\n\nUser's own account (may be empty):\n<account>\n{a.free_text.strip()}\n</account>"
     )
     payload = {
         "model": MODEL,
         "stream": False,
-        "options": {"temperature": 0.2},
+        "options": {"temperature": 0.1},
         "messages": [{"role": "user", "content": prompt}],
     }
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             r = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
             r.raise_for_status()
-        text = r.json()["message"]["content"].strip()
+        text = clean_statement(r.json()["message"]["content"])
         return text if len(text) > 20 else fallback
     except (httpx.HTTPError, KeyError, ValueError):
         return fallback
 
 
 def build_plan(a: Answers, summary: str) -> Plan:
+    L = pick(PLAN, a.ui)
     facts = Facts(
         payment_authorised_by_victim=a.authorised,
         how=a.how,
@@ -112,8 +134,8 @@ def build_plan(a: Answers, summary: str) -> Plan:
         shared_credentials=a.shared_credentials,
         amount_eur=a.amount_eur,
     )
-    v = decide(facts)
-    bank = a.bank if a.bank and a.bank.lower() != "other" else "your bank"
+    v = decide(facts, lang=a.ui)
+    bank = a.bank if a.bank and a.bank.lower() != "other" else L["bank_fallback"]
     urgent = a.when in ("today", "last_3_days")
     cards_involved = a.method in ("card", "both") or a.shared_credentials == "yes"
 
@@ -123,121 +145,69 @@ def build_plan(a: Answers, summary: str) -> Plan:
     steps.append(
         Step(
             id="cardstop",
-            title="Call Card Stop",
-            intro=[
-                "Block your bank cards first. Card Stop is reachable around the clock, and it takes a couple of minutes."
-                if cards_involved
-                else "Your cards may not be at risk, but blocking them is the fastest way to be safe while you sort out the rest. Your bank can reissue them."
-            ],
-            actions=[Action(label="Call 078 170 170", href="tel:078170170")],
+            title=L["cardstop_title"],
+            intro=[L["cardstop_cards"] if cards_involved else L["cardstop_other"]],
+            actions=[Action(label=L["cardstop_call"], href="tel:078170170")],
         )
     )
 
     # 2. Police
     police_bullets = []
     if a.told_police:
-        police_bullets.append("You said you already reported this. Keep the reference number and add anything below that is missing.")
-    police_bullets += [
-        "Online: policeonweb.be, where it is available for your type of fraud. You receive a reference number.",
-        "In person: go to your local police station. Bring your ID, your phone and the report text below, and ask them to register an official complaint. Keep the reference number or a copy of your statement.",
-        "Forward suspicious messages and websites to verdacht@safeonweb.be.",
-    ]
+        police_bullets.append(L["police_already"])
+    police_bullets += [L["police_online"], L["police_inperson"], L["police_safeonweb"]]
     if a.how == "investment":
-        police_bullets.append("Investment scams: also tell the FSMA (fsma.be), which publishes warnings about fraudulent firms.")
+        police_bullets.append(L["police_fsma"])
     if a.how == "marketplace":
-        police_bullets.append("Report the listing or profile to the platform with its report function so others are not caught.")
+        police_bullets.append(L["police_platform"])
     steps.append(
         Step(
             id="police",
-            title="Report it to the police",
-            intro=["Your bank, the ombudsman and any refund claim will ask for the police report, so do this today."],
+            title=L["police_title"],
+            intro=[L["police_intro"]],
             bullets=police_bullets,
-            actions=[Action(label="Open Police on Web", href="https://www.policeonweb.be")],
-            doc=Doc(title="Report text for the police", text=build_police_report(a, summary)),
+            actions=[Action(label=L["police_action"], href="https://www.policeonweb.be")],
+            doc=Doc(title=L["police_doc"], text=build_police_report(a, summary)),
         )
     )
 
     # 3. Bank
-    bank_bullets = [
-        "Say it is fraud and ask them to block your online banking access and reset your itsme or Digipass.",
-        "Ask them to recall or freeze the payment and to contact the receiving bank straight away.",
-        "Ask them to open a fraud case, give you the case reference and confirm everything in writing.",
-    ]
+    bank_bullets = [L["bank_b1"], L["bank_b2"], L["bank_b3"]]
     if a.method in ("card", "both"):
-        bank_bullets.append("For the card payment, ask for a chargeback dispute. Card schemes only allow a limited window, so ask on day one.")
+        bank_bullets.append(L["bank_card"])
     if a.told_bank:
-        bank_bullets.insert(0, "You said you already told your bank. Ask for the case reference and send the written claim below anyway.")
+        bank_bullets.insert(0, L["bank_told"])
     if urgent:
-        bank_bullets.append("It just happened, so speed matters: money that has not left the receiving account yet can sometimes be frozen.")
+        bank_bullets.append(L["bank_urgent"])
     steps.append(
         Step(
             id="bank",
-            title=f"Call {bank} and send a written claim",
-            intro=["Use the number on the back of your card or in your banking app, never a number the scammer gave you."],
+            title=L["bank_title"].format(bank=bank),
+            intro=[L["bank_intro"]],
             bullets=bank_bullets,
-            doc=Doc(title="Written claim to your bank", text=build_letter(a.bank, a.amount_eur, summary, a.authorised, a.when, a.language)),
+            doc=Doc(title=L["bank_doc"], text=build_letter(a.bank, a.amount_eur, summary, a.authorised, a.when, a.language)),
         )
     )
 
     # 4. Claim back
-    if v.level == "strong":
-        claim_intro = [
-            "From your answers, you did not approve this payment. Belgian payment law (PSD2) says the bank must refund unauthorised payments promptly, and it can only recover the money from you later if it proves gross negligence. Belgian and EU courts read that test strictly."
-        ]
-        claim_bullets = [
-            "Report the problem to your bank without delay, and within 13 months of the payment at the latest.",
-            "Send the written claim by email and by registered post, and keep the proofs.",
-            "Mention that you have reported it to the police and ask for the refund in writing.",
-            "If the bank refuses or does not answer within a few weeks, file a free complaint with Ombudsfin. A refusal is not the end: Belgian courts have ordered banks to refund immediately.",
-        ]
-    elif v.level == "possible":
-        claim_intro = [
-            "You approved the payment, so the bank is not automatically liable today. EU rules that are set to make banks refund victims of bank impersonation (PSD3 and PSR) were politically agreed in November 2025 but are not in force yet. Success depends on the details."
-        ]
-        claim_bullets = [
-            "Send the written claim and ask for reimbursement and for the payment to be recalled.",
-            "Keep every message, call log and screenshot. They are your evidence.",
-            "If the bank refuses, file a free complaint with Ombudsfin and ask for the decision in writing.",
-            "Keep your file complete, because the new rules may change how banks must treat cases like yours.",
-        ]
-    elif v.level == "unlikely":
-        claim_intro = [
-            "You approved the payment yourself, and current Belgian law generally does not oblige the bank to refund it, even when you were tricked. You still have options."
-        ]
-        claim_bullets = [
-            "Send the written claim and ask the bank to contact the receiving bank about the payment.",
-            "Ask the bank to consider a goodwill refund and request the answer in writing.",
-            "File a free complaint with Ombudsfin if the bank says no.",
-            "If you have legal expenses insurance, ask whether it covers a lawyer's opinion.",
-        ]
-    else:
-        claim_intro = ["We need to know whether you approved the payment yourself before we can say where you stand."]
-        claim_bullets = [
-            "Send the written claim anyway and ask the bank to investigate and recall the payment.",
-            "If the bank refuses, file a free complaint with Ombudsfin.",
-        ]
     steps.append(
         Step(
             id="claim",
-            title="Claim your money back",
-            intro=claim_intro,
-            bullets=claim_bullets,
-            actions=[Action(label="Ombudsfin", href="https://www.ombudsfin.be")],
+            title=L["claim_title"],
+            intro=[L[f"{v.level}_intro"]],
+            bullets=[L[k] for k in sorted(L) if k.startswith(f"{v.level}_") and k[len(v.level) + 1:].isdigit()],
+            actions=[Action(label=L["claim_action"], href="https://www.ombudsfin.be")],
         )
     )
 
     # 5. Protect
     protect = []
     if a.remote_access == "yes":
-        protect.append("Disconnect the device from the internet, remove any remote access app (AnyDesk, TeamViewer and similar) and change your passwords from another device. Consider a professional check or a factory reset.")
+        protect.append(L["protect_remote"])
     if a.shared_credentials == "yes":
-        protect.append("You shared codes or card details. Change your passwords, reset itsme or Digipass and ask for replacement cards.")
-    protect += [
-        "Watch your accounts closely for the next weeks and turn on payment notifications.",
-        "Do not pay anyone who offers to recover your money for a fee. That is a second scam, and victims are often targeted twice.",
-        "Warn your family. Scammers often come back or move on to relatives.",
-    ]
-    steps.append(Step(id="protect", title="Protect yourself now", bullets=protect))
+        protect.append(L["protect_codes"])
+    protect += [L["protect_watch"], L["protect_recovery"], L["protect_family"]]
+    steps.append(Step(id="protect", title=L["protect_title"], bullets=protect))
 
     return Plan(
         urgent=urgent,

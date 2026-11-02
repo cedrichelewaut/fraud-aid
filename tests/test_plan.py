@@ -49,4 +49,26 @@ assert "[amount]" in p.steps[2].doc.text and p.verdict.up_to_eur is None
 # French police report
 p = build_plan(answers(language="fr"), "x")
 assert "Déclaration" in p.steps[1].doc.text
+# Cents are kept in the documents, in each language's number format
+p = build_plan(answers(amount_eur=1234.5, language="nl"), "x")
+assert "EUR 1.234,50" in p.steps[2].doc.text and "EUR 1.234,50" in p.steps[1].doc.text
+p = build_plan(answers(amount_eur=444.5, language="en"), "x")
+assert "EUR 444.50" in p.steps[2].doc.text
+p = build_plan(answers(amount_eur=444, language="fr"), "x")
+assert "444 EUR" in p.steps[2].doc.text
+# The statement from the model is cleaned: one plain paragraph, no titles, markdown or second version
+from app.plan import clean_statement
+messy = "**Déclaration pour la banque :**\n\nJ'ai reçu un SMS avec un lien. J'ai saisi mes données.\n\n---\n\n**Déclaration pour la police :**\n\nJ'ai été victime d'une usurpation."
+assert clean_statement(messy) == "J'ai reçu un SMS avec un lien. J'ai saisi mes données.", clean_statement(messy)
+assert clean_statement("# Titel\n- Ik werd gebeld.\n- Ik betaalde zelf.") == "Ik werd gebeld. Ik betaalde zelf."
+assert len(clean_statement("Een zin. " * 400)) <= 901
+
+# The plan text follows the interface language
+for lang, title, headline in [("en", "Call Card Stop", "Probably entitled to a refund"), ("fr", "Appelez Card Stop", "Droit probable à un remboursement"), ("nl", "Bel Card Stop", "Waarschijnlijk recht op terugbetaling")]:
+    p = build_plan(answers(authorised="no", how="phishing_link", impersonated=None, ui=lang), "x")
+    assert p.steps[0].title == title and p.verdict.headline == headline, (lang, p.steps[0].title, p.verdict.headline)
+    assert len(p.steps) == 5 and all(s.title for s in p.steps)
+# and the document language is independent of it
+p = build_plan(answers(ui="fr", language="nl"), "x")
+assert "Appelez" in p.steps[2].title and "Geachte" in p.steps[2].doc.text
 print("plan ok")

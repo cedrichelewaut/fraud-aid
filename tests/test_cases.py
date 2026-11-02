@@ -73,6 +73,25 @@ assert v["status"] == "claim_sent" and v["events"][-1]["note"] == "Sent to KBC"
 eid = d["files"][0]["id"]
 assert c.get(f"/api/admin/cases/{case_id}/evidence/{eid}", headers=A).content == b"%PDF-1.4 test"
 
+# Terms and tips come in all three languages
+for lang, word in [("en", "Draft terms"), ("fr", "Conditions provisoires"), ("nl", "Voorlopige voorwaarden")]:
+    assert word in c.get(f"/api/terms?lang={lang}").json()["draft_notice"]
+assert c.get("/api/terms?lang=xx").json()["draft_notice"].startswith("Draft")  # unknown language falls back to English
+tips = {l: c.get(f"/api/tips?lang={l}").json() for l in ("en", "fr", "nl")}
+assert list(tips["en"]) == list(tips["fr"]) == list(tips["nl"]) and "zero_trust" in tips["en"]
+assert all(len(tips[l][k]["items"]) == len(tips["en"][k]["items"]) and tips[l][k]["intro"] for l in tips for k in tips[l])
+assert "tells" in tips["en"]["zero_trust"]["items"][0]["h"] and tips["fr"]["zero_trust"]["items"][6]["h"] == "Allez sur place"
+
+# Quick check of whether Fraud Aid can take a case, without the AI step
+ok_case = dict(how="phone_call", impersonated="bank", authorised="yes", method="transfer", when="today", bank="KBC", amount_eur=500)
+assert c.post("/api/verdict", json=ok_case).json() == {"level": "possible", "can_offer_help": True}
+assert c.post("/api/verdict", json={**ok_case, "how": "investment", "impersonated": None}).json() == {"level": "unlikely", "can_offer_help": False}
+
+# A status change without a note is stored as a code, so the victim reads it in their own language
+assert c.post(f"/api/admin/cases/{case_id}/status", headers=A, json={"status": "won", "note": ""}).status_code == 200
+ev = c.get(f"/api/cases/{case_id}", headers=H).json()["events"]
+assert ev[-1]["note"] == "status:won" and ev[-1]["kind"] == "status" and ev[0]["kind"] == "created"
+
 # Erasure removes the row, the events and the files
 assert c.delete(f"/api/cases/{case_id}", headers={"X-Case-Token": "x"}).status_code == 403
 assert c.delete(f"/api/cases/{case_id}", headers=H).json() == {"deleted": True}

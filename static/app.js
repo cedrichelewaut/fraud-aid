@@ -3,6 +3,14 @@ const app = document.getElementById("app");
 // Answers live in the browser only and are sent once, at the end, to build the plan.
 let answers = {};
 let trail = []; // indexes of the steps already shown, for Back
+let view = null; // how to draw the current screen again, for when the language changes
+let lastPlan = null;
+let contact = {};
+let caseRef = null;
+let handoverFrom = "plan"; // where the hand-over was started, so Back goes to the right place
+let planPromise = null; // the plan is built in the background while someone fills in the hand-over forms
+
+const reading = (on) => document.body.classList.toggle("reading", on);
 
 function el(tag, props = {}, ...kids) {
   const n = document.createElement(tag);
@@ -11,71 +19,37 @@ function el(tag, props = {}, ...kids) {
   return n;
 }
 
-const opt = (value, title, sub) => ({ value, title, sub });
-
-const YES_NO_UNSURE = [opt("yes", "Yes"), opt("no", "No"), opt("unclear", "Not sure")];
+const opt = (value, key, subKey) => ({ value, key, subKey });
+const YES_NO_UNSURE = () => [opt("yes", "yes"), opt("no", "no"), opt("unclear", "unsure")];
 
 // ---- Steps -------------------------------------------------------------------------------
 
 const STEPS = [
-  {
-    id: "country",
-    ask: "Which country did this happen in?",
-    type: "choice",
-    options: [opt("BE", "Belgium"), opt("other", "Another country")],
-  },
-  { id: "amount", ask: "How much money did you lose?", type: "amount" },
+  { id: "country", ask: "q_country", type: "choice", options: [opt("BE", "country_be"), opt("other", "country_other")] },
+  { id: "amount", ask: "q_amount", type: "amount" },
   {
     id: "how",
-    ask: "How did it happen?",
+    ask: "q_how",
     type: "how",
-    options: [
-      opt("phone_call", "Someone called me"),
-      opt("phishing_link", "A text, email or link"),
-      opt("messaging", "A message on WhatsApp or social media"),
-      opt("marketplace", "An online purchase or sale"),
-      opt("investment", "An investment opportunity"),
-      opt("romance", "Romance or a person in need"),
-      opt("other", "Something else"),
-    ],
+    options: ["phone_call", "phishing_link", "messaging", "marketplace", "investment", "romance", "other"].map((v) => opt(v, "how_" + v)),
   },
   {
     id: "impersonated",
-    ask: "Who did they pretend to be?",
+    ask: "q_impersonated",
     type: "choice",
     when: (a) => ["phone_call", "phishing_link", "messaging"].includes(a.how),
-    options: [
-      opt("bank", "My bank"),
-      opt("police", "The police or an authority"),
-      opt("company", "A company or service", "Parcel, telecom, tax, a shop"),
-      opt("relative", "A family member or friend"),
-      opt("none", "Nobody in particular"),
-    ],
+    options: [opt("bank", "imp_bank"), opt("police", "imp_police"), opt("company", "imp_company", "imp_company_sub"), opt("relative", "imp_relative"), opt("none", "imp_none")],
   },
   {
     id: "authorised",
-    ask: "Did you approve or send the payment yourself?",
+    ask: "q_authorised",
     type: "choice",
-    options: [
-      opt("yes", "Yes, I approved it", "Even if I was pressured or tricked"),
-      opt("no", "No, the money left my account without my approval"),
-      opt("unclear", "I am not sure"),
-    ],
+    options: [opt("yes", "auth_yes", "auth_yes_sub"), opt("no", "auth_no"), opt("unclear", "auth_unclear")],
   },
-  {
-    id: "method",
-    ask: "How did you pay?",
-    type: "choice",
-    options: [opt("transfer", "Bank transfer"), opt("card", "Card payment"), opt("both", "Both"), opt("other", "Something else")],
-  },
-  {
-    id: "when",
-    ask: "When did it happen?",
-    type: "choice",
-    options: [opt("today", "Today"), opt("last_3_days", "In the last 3 days"), opt("last_month", "In the last month"), opt("older", "Longer ago")],
-  },
-  { id: "bank", ask: "Which bank are you with?", type: "bank" },
-  { id: "extras", ask: "A few last things", type: "extras" },
+  { id: "method", ask: "q_method", type: "choice", options: [opt("transfer", "m_transfer"), opt("card", "m_card"), opt("both", "m_both"), opt("other", "m_other")] },
+  { id: "when", ask: "q_when", type: "choice", options: ["today", "last_3_days", "last_month", "older"].map((v) => opt(v, "w_" + v)) },
+  { id: "bank", ask: "q_bank", type: "bank" },
+  { id: "extras", ask: "q_extras", type: "extras" },
 ];
 
 const BANKS = ["KBC", "BNP Paribas Fortis", "Belfius", "ING", "Argenta", "Crelan", "Keytrade", "Revolut"];
@@ -83,14 +57,14 @@ const BANKS = ["KBC", "BNP Paribas Fortis", "Belfius", "ING", "Argenta", "Crelan
 // ---- Frame -------------------------------------------------------------------------------
 
 function frame(stepIndex, ...content) {
-  const total = STEPS.length;
+  reading(false);
   const top = el("div", { className: "top" });
   if (trail.length) {
-    const back = el("button", { className: "back", type: "button" }, "← Back");
+    const back = el("button", { className: "back", type: "button" }, t("back"));
     back.addEventListener("click", goBack);
     top.append(back);
   }
-  const progress = el("div", { className: "progress", ariaHidden: "true" }, el("i", { style: `width:${Math.round(((stepIndex + 1) / total) * 100)}%` }));
+  const progress = el("div", { className: "progress", ariaHidden: "true" }, el("i", { style: `width:${Math.round(((stepIndex + 1) / STEPS.length) * 100)}%` }));
   top.append(progress);
   app.replaceChildren(top, el("section", { className: "screen" }, ...content));
   window.scrollTo(0, 0);
@@ -109,7 +83,7 @@ function next(from) {
 }
 
 function goTo(i) {
-  if (i >= STEPS.length) return buildPlan();
+  if (i >= STEPS.length) return afterQuestions();
   render(i);
 }
 
@@ -129,15 +103,22 @@ function goBack() {
 function start() {
   answers = {};
   trail = [];
+  lastPlan = null;
+  showStart();
+}
+
+function showStart() {
+  view = showStart;
+  reading(false);
   const hero = el(
     "div",
     { className: "ask" },
     el("img", { src: "/logo.svg", alt: "", width: 96, height: 96 }),
-    el("h1", { className: "big" }, "Hi, I'm Suki."),
-    el("p", { className: "sub" }, "Are you here because of a fraud incident, or to learn more?"),
+    el("h1", { className: "big" }, t("start_h1")),
+    el("p", { className: "sub" }, t("start_sub")),
   );
-  const scammed = el("button", { className: "chip", type: "button" }, "I was scammed");
-  const learn = el("button", { className: "chip", type: "button" }, "I want to learn more");
+  const scammed = el("button", { className: "chip", type: "button" }, t("chip_scammed"));
+  const learn = el("button", { className: "chip", type: "button" }, t("chip_learn"));
   scammed.addEventListener("click", () => render(0));
   learn.addEventListener("click", learnScreen);
   hero.append(el("div", { className: "chips" }, scammed, learn));
@@ -148,6 +129,7 @@ function start() {
 // ---- Renderers ---------------------------------------------------------------------------
 
 function render(i) {
+  view = () => render(i);
   const s = STEPS[i];
   if (s.type === "choice") return renderChoice(i, s);
   if (s.type === "amount") return renderAmount(i, s);
@@ -160,7 +142,7 @@ function renderChoice(i, s) {
   const list = el("div", { className: "options" });
   s.options.forEach((o) => {
     const b = el("button", { className: "opt", type: "button", ariaPressed: String(answers[s.id] === o.value) });
-    b.append(el("span", {}, el("span", { className: "t" }, o.title), o.sub ? el("span", { className: "s" }, o.sub) : ""));
+    b.append(el("span", {}, el("span", { className: "t" }, t(o.key)), o.subKey ? el("span", { className: "s" }, t(o.subKey)) : ""));
     b.addEventListener("click", () => {
       answers[s.id] = o.value;
       if (s.id === "country" && o.value === "other") return otherCountry();
@@ -168,15 +150,22 @@ function renderChoice(i, s) {
     });
     list.append(b);
   });
-  frame(i, ask(s.ask), list);
+  frame(i, ask(t(s.ask)), list);
 }
 
 function renderAmount(i, s) {
-  const input = el("input", { type: "number", min: "1", step: "1", inputMode: "numeric", placeholder: "0", ariaLabel: "Amount lost in euros", autofocus: true });
-  if (answers.amount_eur) input.value = answers.amount_eur;
-  const go = el("button", { className: "button", type: "submit", disabled: !input.value }, "Continue");
-  const unsure = el("button", { className: "button ghost", type: "button" }, "I am not sure");
-  input.addEventListener("input", () => (go.disabled = !(Number(input.value) > 0)));
+  const input = el("input", { type: "text", inputMode: "decimal", autocomplete: "off", placeholder: "0,00", ariaLabel: t("amount_aria"), autofocus: true });
+  input.value = answers._amountText ?? (answers.amount_eur ? String(answers.amount_eur).replace(".", ",") : "");
+  const valid = () => {
+    const n = parseAmount(input.value);
+    return n > 0 && n < 10000000;
+  };
+  const go = el("button", { className: "button", type: "submit", disabled: !valid() }, t("continue"));
+  const unsure = el("button", { className: "button ghost", type: "button" }, t("not_sure"));
+  input.addEventListener("input", () => {
+    answers._amountText = input.value;
+    go.disabled = !valid();
+  });
   unsure.addEventListener("click", () => {
     answers.amount_eur = null;
     advance(i);
@@ -184,46 +173,52 @@ function renderAmount(i, s) {
   const form = el("form", {}, el("div", { className: "money" }, el("span", {}, "€"), input), el("div", { className: "row" }, go, unsure));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!(Number(input.value) > 0)) return;
-    answers.amount_eur = Number(input.value);
+    if (!valid()) return;
+    answers.amount_eur = parseAmount(input.value);
     advance(i);
   });
-  frame(i, ask(s.ask), form);
+  frame(i, ask(t(s.ask)), form);
   input.focus();
 }
 
 function renderHow(i, s) {
+  // Clicking an option continues at once. "Continue" is only for people who write their own account.
+  const text = el("textarea", { className: "text", rows: 4, maxLength: 3000, placeholder: t("free_ph"), id: "free" });
+  text.value = answers.free_text || "";
+  const go = el("button", { className: "button", type: "submit", disabled: !text.value.trim() && !answers.how }, t("continue"));
+  const proceed = (how) => {
+    answers.how = how;
+    answers.free_text = text.value.trim();
+    advance(i);
+  };
+
   const list = el("div", { className: "options" });
-  const go = el("button", { className: "button", type: "submit", disabled: !answers.how }, "Continue");
   s.options.forEach((o) => {
     const b = el("button", { className: "opt", type: "button", ariaPressed: String(answers.how === o.value) });
-    b.append(el("span", { className: "t" }, o.title));
-    b.addEventListener("click", () => {
-      answers.how = o.value;
-      list.querySelectorAll(".opt").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-      go.disabled = false;
-    });
+    b.append(el("span", { className: "t" }, t(o.key)));
+    b.addEventListener("click", () => proceed(o.value));
     list.append(b);
   });
-  const text = el("textarea", { className: "text", rows: 4, maxLength: 3000, placeholder: "What happened, in your own words. The more detail, the better your documents.", id: "free" });
-  text.value = answers.free_text || "";
-  const field = el("div", { className: "field" }, el("label", { htmlFor: "free" }, "Tell us in your own words (optional)"), text);
+
+  text.addEventListener("input", () => {
+    answers.free_text = text.value;
+    go.disabled = !text.value.trim() && !answers.how;
+  });
+  const field = el("div", { className: "field" }, el("label", { htmlFor: "free" }, t("free_label")), text);
   const form = el("form", {}, list, field, el("div", { className: "row" }, go));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!answers.how) return;
-    answers.free_text = text.value.trim();
-    advance(i);
+    if (text.value.trim() || answers.how) proceed(answers.how || "other");
   });
-  frame(i, ask(s.ask), form);
+  frame(i, ask(t(s.ask)), form);
 }
 
 function renderBank(i, s) {
   const grid = el("div", { className: "grid" });
-  const other = el("input", { className: "text", type: "text", maxLength: 60, placeholder: "Type the name of your bank", ariaLabel: "Bank name" });
+  const other = el("input", { className: "text", type: "text", maxLength: 60, placeholder: t("bank_ph"), ariaLabel: t("bank_aria") });
   const otherWrap = el("div", { className: "field" }, other);
   otherWrap.hidden = true;
-  const go = el("button", { className: "button", type: "submit", disabled: true }, "Continue");
+  const go = el("button", { className: "button", type: "submit", disabled: true }, t("continue"));
   let chosen = answers.bank || "";
   const sync = () => {
     grid.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.v === (BANKS.includes(chosen) ? chosen : chosen ? "Other" : ""))));
@@ -231,7 +226,7 @@ function renderBank(i, s) {
     go.disabled = !chosen.trim();
   };
   [...BANKS, "Other"].forEach((b) => {
-    const c = el("button", { className: "chip", type: "button", ariaPressed: "false" }, b);
+    const c = el("button", { className: "chip", type: "button", ariaPressed: "false" }, b === "Other" ? t("bank_other") : b);
     c.dataset.v = b;
     c.addEventListener("click", () => {
       if (b === "Other") {
@@ -258,7 +253,7 @@ function renderBank(i, s) {
     answers.bank = chosen.trim();
     advance(i);
   });
-  frame(i, ask(s.ask), form);
+  frame(i, ask(t(s.ask)), form);
   if (chosen) {
     if (!BANKS.includes(chosen)) other.value = chosen;
     sync();
@@ -269,28 +264,33 @@ function pillGroup(name, legend, options, current) {
   const pills = el("div", { className: "pills" });
   options.forEach((o) => {
     const input = el("input", { type: "radio", name, value: o.value, checked: current === o.value });
-    pills.append(el("label", { className: "pill" }, input, el("span", {}, o.title)));
+    pills.append(el("label", { className: "pill" }, input, el("span", {}, o.label ?? t(o.key))));
   });
-  const fs = el("fieldset", {}, el("legend", {}, legend), pills);
-  return el("div", { className: "field" }, fs);
+  return el("div", { className: "field" }, el("fieldset", {}, el("legend", {}, legend), pills));
 }
 
 function renderExtras(i, s) {
-  const yn = [opt("yes", "Yes"), opt("no", "No")];
+  const yn = [opt("yes", "yes"), opt("no", "no")];
   const form = el("form", {});
   form.append(
-    pillGroup("shared_credentials", "Did you give anyone codes, card details or an itsme approval?", YES_NO_UNSURE, answers.shared_credentials || "unclear"),
-    pillGroup("remote_access", "Did you install an app or let someone control your phone or computer?", YES_NO_UNSURE, answers.remote_access || "unclear"),
-    pillGroup("told_bank", "Have you already told your bank?", yn, answers.told_bank === true ? "yes" : "no"),
-    pillGroup("told_police", "Have you already reported it to the police?", yn, answers.told_police === true ? "yes" : "no"),
+    pillGroup("shared_credentials", t("x_shared"), YES_NO_UNSURE(), answers.shared_credentials || "unclear"),
+    pillGroup("remote_access", t("x_remote"), YES_NO_UNSURE(), answers.remote_access || "unclear"),
+    pillGroup("told_bank", t("x_told_bank"), yn, answers.told_bank === true ? "yes" : "no"),
+    pillGroup("told_police", t("x_told_police"), yn, answers.told_police === true ? "yes" : "no"),
   );
-  const details = el("input", { className: "text", type: "text", maxLength: 500, id: "scammer", placeholder: "IBAN, phone number, website or profile name" });
+  const details = el("input", { className: "text", type: "text", maxLength: 500, id: "scammer", placeholder: t("x_scammer_ph") });
   details.value = answers.scammer_details || "";
-  form.append(el("div", { className: "field" }, el("label", { htmlFor: "scammer" }, "Anything you know about the scammer (optional)"), details));
+  form.append(el("div", { className: "field" }, el("label", { htmlFor: "scammer" }, t("x_scammer")), details));
+  // The language of the two documents. It starts as the language you are using the site in.
   form.append(
-    pillGroup("language", "Language for your letter and police report", [opt("nl", "Nederlands"), opt("fr", "Français"), opt("en", "English")], answers.language || "nl"),
+    pillGroup(
+      "language",
+      t("x_language"),
+      [{ value: "nl", label: "Nederlands" }, { value: "fr", label: "Français" }, { value: "en", label: "English" }],
+      answers.language || LANG,
+    ),
   );
-  form.append(el("div", { className: "row" }, el("button", { className: "button", type: "submit" }, "Show my plan")));
+  form.append(el("div", { className: "row" }, el("button", { className: "button", type: "submit" }, t("show_plan"))));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const f = new FormData(form);
@@ -302,134 +302,144 @@ function renderExtras(i, s) {
     answers.language = f.get("language");
     advance(i);
   });
-  frame(i, ask(s.ask), form);
+  frame(i, ask(t(s.ask)), form);
 }
 
 function otherCountry() {
-  const email = el("input", { className: "text", type: "email", placeholder: "you@example.com", ariaLabel: "Email address", required: true });
+  view = otherCountry;
+  const email = el("input", { className: "text", type: "email", placeholder: t("email_ph"), ariaLabel: t("email_aria"), required: true });
   const box = el("input", { type: "checkbox", required: true });
   const msg = el("p", { className: "hint" });
-  const go = el("button", { className: "button", type: "submit" }, "Notify me");
-  const form = el(
-    "form",
-    {},
-    el("div", { className: "field" }, email),
-    el("label", { className: "consent field" }, box, "I agree that Fraud Aid stores my email to tell me when my country is available."),
-    el("div", { className: "row" }, go),
-    msg,
-  );
+  const go = el("button", { className: "button", type: "submit" }, t("notify_me"));
+  const form = el("form", {}, el("div", { className: "field" }, email), el("label", { className: "consent field" }, box, t("oc_consent")), el("div", { className: "row" }, go), msg);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     go.disabled = true;
     const r = await fetch("/api/waitlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.value, consent: box.checked, note: "country not supported" }) }).catch(() => null);
-    msg.textContent = r && r.ok ? "Thank you. We will email you when we open." : "That did not work. Please check your email address.";
+    msg.textContent = r && r.ok ? t("oc_ok") : t("oc_fail");
     go.disabled = !!(r && r.ok);
   });
-  trail.push(0);
-  frame(0, el("div", { className: "ask" }, el("img", { src: "/logo.svg", alt: "", width: 44, height: 44 }), el("h2", { className: "big", tabIndex: -1 }, "Fraud Aid works in Belgium for now."), el("p", { className: "sub" }, "Banking rules differ per country, so we only give advice where we have checked them. Leave your email and we will tell you when yours is ready. In the meantime, call your bank and report the fraud to your local police today.")), form);
+  if (trail[trail.length - 1] !== 0) trail.push(0);
+  frame(0, el("div", { className: "ask" }, el("img", { src: "/logo.svg", alt: "", width: 44, height: 44 }), el("h2", { className: "big", tabIndex: -1 }, t("oc_title")), el("p", { className: "sub" }, t("oc_sub"))), form);
 }
 
 // ---- Learn -------------------------------------------------------------------------------
 
-const TOPICS = [
-  ["phone_calls", "Phone calls"],
-  ["messages_and_links", "Messages and links"],
-  ["elderly_relatives", "Protecting parents or grandparents"],
-  ["investments", "Investments"],
-  ["marketplaces", "Buying and selling online"],
-  ["your_accounts", "Securing my accounts"],
-];
+const TOPICS = ["zero_trust", "phone_calls", "messages_and_links", "family_voices", "investments", "marketplaces", "your_accounts"];
 
 function learnScreen() {
+  view = learnScreen;
+  reading(false);
   const list = el("div", { className: "options" });
-  TOPICS.forEach(([key, title]) => {
-    const b = el("button", { className: "opt", type: "button" }, el("span", { className: "t" }, title));
-    b.addEventListener("click", () => tipsScreen(key, title));
+  TOPICS.forEach((key) => {
+    const b = el("button", { className: "opt", type: "button" }, el("span", { className: "t" }, t("topic_" + key)));
+    b.addEventListener("click", () => tipsScreen(key));
     list.append(b);
   });
-  const back = el("button", { className: "back", type: "button" }, "← Back");
+  const back = el("button", { className: "back", type: "button" }, t("back"));
   back.addEventListener("click", start);
-  app.replaceChildren(el("div", { className: "top" }, back), el("section", { className: "screen" }, ask("What would you like to learn about?"), list));
+  app.replaceChildren(el("div", { className: "top" }, back), el("section", { className: "screen" }, ask(t("learn_q")), list));
   window.scrollTo(0, 0);
 }
 
-async function tipsScreen(key, title) {
-  const r = await fetch("/api/tips").catch(() => null);
-  const tips = r && r.ok ? (await r.json())[key] : null;
-  const ul = el("ul", { className: "tips" });
-  (tips || ["Something went wrong. Please try again."]).forEach((t) => ul.append(el("li", {}, t)));
-  const back = el("button", { className: "back", type: "button" }, "← All topics");
+async function tipsScreen(key) {
+  view = () => tipsScreen(key);
+  reading(false);
+  const r = await fetch(`/api/tips?lang=${LANG}`).catch(() => null);
+  const topic = r && r.ok ? (await r.json())[key] : null;
+  const body = el("div", { className: "tipsbody" });
+  if (topic) {
+    body.append(el("p", { className: "sub tipintro" }, topic.intro));
+    topic.items.forEach((it) => body.append(el("div", { className: "tip" }, el("h3", {}, it.h), el("p", {}, it.p))));
+  } else {
+    body.append(el("p", { className: "sub" }, t("went_wrong")));
+  }
+  const cta = el("button", { className: "chip", type: "button" }, t("tips_cta"));
+  cta.addEventListener("click", () => {
+    answers = {};
+    trail = [];
+    lastPlan = null;
+    render(0);
+  });
+  const back = el("button", { className: "back", type: "button" }, t("all_topics"));
   back.addEventListener("click", learnScreen);
-  app.replaceChildren(el("div", { className: "top" }, back), el("section", { className: "screen" }, ask(title), ul));
+  app.replaceChildren(el("div", { className: "top" }, back), el("section", { className: "screen" }, ask(t("topic_" + key)), body, el("div", { className: "row" }, cta)));
   window.scrollTo(0, 0);
 }
 
 // ---- Plan --------------------------------------------------------------------------------
 
-const euro = (n) => new Intl.NumberFormat("en-BE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
-const LEVELS = { strong: "Strong position", possible: "Possible claim", unlikely: "Unlikely", unclear: "More information needed" };
+const euro = (n) => new Intl.NumberFormat(LANG === "en" ? "en-BE" : LANG === "fr" ? "fr-BE" : "nl-BE", { style: "currency", currency: "EUR", minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }).format(n);
+
+function planBody(reuseSummary) {
+  return { ...answers, _amountText: undefined, amount_eur: answers.amount_eur || null, ui: LANG, summary: reuseSummary && lastPlan ? lastPlan.summary : undefined };
+}
 
 async function buildPlan() {
+  view = () => reloadPlan();
+  reading(false);
   app.replaceChildren(
     el(
       "section",
       { className: "screen" },
-      el("div", { className: "ask" }, el("img", { src: "/logo.svg", alt: "", width: 44, height: 44 }), el("h2", { className: "big", tabIndex: -1 }, "Putting your plan together"), el("span", { className: "typing", ariaHidden: "true" }, el("i"), el("i"), el("i")), el("p", { className: "hint" }, "This takes up to a minute. Your answers are not saved.")),
+      el("div", { className: "ask" }, el("img", { src: "/logo.svg", alt: "", width: 44, height: 44 }), el("h2", { className: "big", tabIndex: -1 }, t("loading_title")), el("span", { className: "typing", ariaHidden: "true" }, el("i"), el("i"), el("i")), el("p", { className: "hint" }, t("loading_hint"))),
     ),
   );
   window.scrollTo(0, 0);
   try {
-    const body = { ...answers, amount_eur: answers.amount_eur || null };
-    const r = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(planBody(false)) });
     if (!r.ok) throw new Error("bad");
     showPlan(await r.json());
   } catch {
-    const retry = el("button", { className: "button", type: "button" }, "Try again");
+    const retry = el("button", { className: "button", type: "button" }, t("try_again"));
     retry.addEventListener("click", buildPlan);
-    app.replaceChildren(el("section", { className: "screen" }, el("div", { className: "ask" }, el("h2", { className: "big" }, "Something went wrong."), el("p", { className: "sub" }, "Your answers are still here. If it keeps failing, call Card Stop on 078 170 170 and your bank right away."), retry)));
+    app.replaceChildren(el("section", { className: "screen" }, el("div", { className: "ask" }, el("h2", { className: "big" }, t("err_title")), el("p", { className: "sub" }, t("err_sub")), retry)));
   }
 }
 
+// Switching language on the plan: the same answers and the same statement, so no new AI call.
+async function reloadPlan() {
+  if (!lastPlan) return buildPlan();
+  const r = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(planBody(true)) }).catch(() => null);
+  if (r && r.ok) showPlan(await r.json());
+}
+
 function docBlock(doc) {
-  const copy = el("button", { type: "button" }, "Copy");
+  const copy = el("button", { type: "button" }, t("copy"));
   copy.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(doc.text);
-      copy.textContent = "Copied";
+      copy.textContent = t("copied");
     } catch {
-      copy.textContent = "Select and copy";
+      copy.textContent = t("copy_select");
     }
-    setTimeout(() => (copy.textContent = "Copy"), 2000);
+    setTimeout(() => (copy.textContent = t("copy")), 2000);
   });
-  return el(
-    "div",
-    { className: "doc" },
-    el("header", {}, el("span", { className: "label" }, doc.title), copy),
-    el("pre", {}, doc.text),
-    el("p", { className: "note" }, "Check every detail and fill in the [brackets] before you send or file it."),
-  );
+  return el("div", { className: "doc" }, el("header", {}, el("span", { className: "label" }, doc.title), copy), el("pre", {}, doc.text), el("p", { className: "note" }, t("doc_note")));
 }
 
 function showPlan(plan) {
   lastPlan = plan;
+  view = () => reloadPlan();
+  reading(true);
   const v = plan.verdict;
-  const head = el("div", { className: "head" }, el("div", { className: "ask" }, el("img", { src: "/logo.svg", alt: "", width: 44, height: 44 }), el("h2", { className: "big", tabIndex: -1 }, "Here is your plan")));
+  const head = el("div", { className: "head" }, el("div", { className: "ask" }, el("img", { src: "/logo.svg", alt: "", width: 44, height: 44 }), el("h2", { className: "big", tabIndex: -1 }, t("plan_title"))));
   const wrap = el("div", { className: "plan" }, head);
 
-  if (plan.urgent) wrap.append(el("p", { className: "urgent" }, "It just happened, so the next hour matters most. Start with step 1."));
+  if (plan.urgent) wrap.append(el("p", { className: "urgent" }, t("urgent")));
 
-  const verdict = el("div", { className: "verdict" }, el("p", { className: "label quiet" }, LEVELS[v.level]), el("p", { className: "headline" }, v.headline));
-  if (v.up_to_eur) verdict.append(el("p", { className: "amount" }, el("small", {}, "You may be entitled to up to, non-binding"), euro(v.up_to_eur)));
+  const verdict = el("div", { className: "verdict" }, el("p", { className: "label quiet" }, t("level_" + v.level)), el("p", { className: "headline" }, v.headline));
+  if (v.up_to_eur) verdict.append(el("p", { className: "amount" }, el("small", {}, t("amount_label")), euro(v.up_to_eur)));
   verdict.append(el("p", { className: "basis" }, v.basis));
   wrap.append(verdict);
 
   const ol = el("ol", { className: "steps" });
   plan.steps.forEach((s, idx) => {
     const body = el("div", {}, el("h3", {}, s.title));
-    s.intro.forEach((t) => body.append(el("p", {}, t)));
+    s.intro.forEach((x) => body.append(el("p", {}, x)));
     if (s.bullets.length) {
       const ul = el("ul");
-      s.bullets.forEach((t) => ul.append(el("li", {}, t)));
+      s.bullets.forEach((x) => ul.append(el("li", {}, x)));
       body.append(ul);
     }
     if (s.actions.length) {
@@ -442,12 +452,12 @@ function showPlan(plan) {
   });
   wrap.append(ol);
 
-  if (plan.can_offer_help) wrap.append(helpBox());
+  if (plan.can_offer_help && !caseRef) wrap.append(helpBox());
 
   const row = el("div", { className: "row noprint" });
-  const print = el("button", { className: "button ghost", type: "button" }, "Print or save as PDF");
+  const print = el("button", { className: "button ghost", type: "button" }, t("print"));
   print.addEventListener("click", () => window.print());
-  const again = el("button", { className: "button ghost", type: "button" }, "Start over");
+  const again = el("button", { className: "button ghost", type: "button" }, t("start_over"));
   again.addEventListener("click", start);
   row.append(print, again);
   wrap.append(row);
@@ -457,28 +467,68 @@ function showPlan(plan) {
   wrap.querySelector("h2")?.focus({ preventScroll: true });
 }
 
+// ---- Do it yourself, or let Fraud Aid help ----------------------------------------------------
+
+// Fraud Aid only offers to take cases it can take on. Everyone else goes straight to their own plan.
+async function afterQuestions() {
+  view = afterQuestions;
+  const r = await fetch("/api/verdict", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(planBody(false)) }).catch(() => null);
+  const eligible = r && r.ok && (await r.json()).can_offer_help;
+  if (eligible) choiceScreen();
+  else buildPlan();
+}
+
+function startPlanFetch() {
+  if (lastPlan || planPromise) return;
+  planPromise = fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(planBody(false)) })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((p) => {
+      if (p) lastPlan = p;
+      return p;
+    })
+    .catch(() => null)
+    .finally(() => (planPromise = null));
+}
+
+function choiceScreen() {
+  view = choiceScreen;
+  const card = (titleKey, textKey) => el("button", { className: "opt", type: "button" }, el("span", {}, el("span", { className: "t" }, t(titleKey)), el("span", { className: "s" }, t(textKey))));
+  const diy = card("ch_diy_h", "ch_diy_p");
+  diy.addEventListener("click", buildPlan);
+  const help = card("ch_help_h", "ch_help_p");
+  help.addEventListener("click", () => {
+    handoverFrom = "choice";
+    startPlanFetch();
+    detailsScreen();
+  });
+  // the small "i": how Fraud Aid is paid
+  const info = el("button", { className: "info", type: "button", ariaLabel: t("info_label") }, "i");
+  info.setAttribute("aria-expanded", "false");
+  const box = el("div", { className: "infobox", hidden: true }, el("p", {}, t("info_fee")));
+  info.addEventListener("click", () => {
+    box.hidden = !box.hidden;
+    info.setAttribute("aria-expanded", String(!box.hidden));
+  });
+  const list = el("div", { className: "options" }, diy, el("div", { className: "choice" }, help, info, box));
+  sideScreen(goBack, ask(t("ch_title")), list, el("p", { className: "hint", style: "margin-top:22px" }, t("ch_note")));
+}
+
 // ---- Hand the case over to Fraud Aid ---------------------------------------------------------
 
-let lastPlan = null;
-let contact = {};
-let caseRef = null;
-
 function helpBox() {
-  const go = el("button", { className: "button", type: "button" }, "Let Fraud Aid handle it");
-  go.addEventListener("click", detailsScreen);
-  return el(
-    "div",
-    { className: "help" },
-    el("h3", {}, "Want us to handle it?"),
-    el("p", {}, "Give us your case and we process the claim for you: we deal with your bank, follow up and escalate. You pay 20% plus VAT of what you recover, and nothing if you recover nothing."),
-    el("div", { className: "row", style: "margin-top:18px" }, go),
-  );
+  const go = el("button", { className: "button", type: "button" }, t("help_btn"));
+  go.addEventListener("click", () => {
+    handoverFrom = "plan";
+    detailsScreen();
+  });
+  return el("div", { className: "help" }, el("h3", {}, t("help_h")), el("p", {}, t("help_p")), el("div", { className: "row", style: "margin-top:18px" }, go));
 }
 
 function sideScreen(backFn, ...content) {
+  reading(false);
   const top = el("div", { className: "top" });
   if (backFn) {
-    const back = el("button", { className: "back", type: "button" }, "← Back");
+    const back = el("button", { className: "back", type: "button" }, t("back"));
     back.addEventListener("click", backFn);
     top.append(back);
   }
@@ -494,59 +544,59 @@ function field(id, label, props = {}) {
 
 async function errorText(r) {
   const body = await r.json().catch(() => ({}));
-  if (typeof body.detail === "string") return body.detail;
-  if (Array.isArray(body.detail) && body.detail[0]) {
-    const d = body.detail[0];
-    return `${(d.loc || []).slice(-1)[0] || "Input"}: ${String(d.msg || "invalid").replace(/^Value error, /, "")}`;
-  }
-  return "Something went wrong. Please try again.";
+  if (typeof body.detail === "string") return body.detail.includes("cannot take") ? t("err_not_eligible") : t("went_wrong");
+  if (Array.isArray(body.detail) && body.detail[0]) return String(body.detail[0].msg || "").includes("IBAN") ? t("err_iban") : t("err_check");
+  return t("went_wrong");
 }
 
 function detailsScreen() {
-  const [fName, name] = field("full_name", "Full name", { autocomplete: "name", required: true, maxLength: 100, value: contact.full_name || "" });
-  const [fEmail, email] = field("email", "Email", { type: "email", autocomplete: "email", required: true, value: contact.email || "" });
-  const [fPhone, phone] = field("phone", "Phone", { type: "tel", autocomplete: "tel", required: true, maxLength: 30, value: contact.phone || "" });
-  const [fAddr, addr] = field("address", "Address", { autocomplete: "street-address", required: true, maxLength: 200, placeholder: "Street, number, postcode, city", value: contact.address || "" });
-  const [fIban, iban] = field("iban", "IBAN of the account that was charged", { required: true, maxLength: 40, placeholder: "BE00 0000 0000 0000", value: contact.iban || "" });
-  const err = el("p", { className: "error", hidden: true, role: "alert" });
-  const form = el("form", {}, fName, fEmail, fPhone, fAddr, fIban, err, el("div", { className: "row" }, el("button", { className: "button", type: "submit" }, "Continue")));
+  view = detailsScreen;
+  const [fName, name] = field("full_name", t("f_name"), { autocomplete: "name", required: true, maxLength: 100, value: contact.full_name || "" });
+  const [fEmail, email] = field("email", t("f_email"), { type: "email", autocomplete: "email", required: true, value: contact.email || "" });
+  const [fPhone, phone] = field("phone", t("f_phone"), { type: "tel", autocomplete: "tel", required: true, maxLength: 30, value: contact.phone || "" });
+  const [fAddr, addr] = field("address", t("f_address"), { autocomplete: "street-address", required: true, maxLength: 200, placeholder: t("f_address_ph"), value: contact.address || "" });
+  const [fIban, iban] = field("iban", t("f_iban"), { required: true, maxLength: 40, placeholder: "BE00 0000 0000 0000", value: contact.iban || "" });
+  const keep = () => (contact = { full_name: name.value.trim(), email: email.value.trim(), phone: phone.value.trim(), address: addr.value.trim(), iban: iban.value.trim() });
+  [name, email, phone, addr, iban].forEach((x) => x.addEventListener("input", keep));
+  const form = el("form", {}, fName, fEmail, fPhone, fAddr, fIban, el("div", { className: "row" }, el("button", { className: "button", type: "submit" }, t("continue"))));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    contact = { full_name: name.value.trim(), email: email.value.trim(), phone: phone.value.trim(), address: addr.value.trim(), iban: iban.value.trim() };
+    keep();
     termsScreen();
   });
-  sideScreen(() => showPlan(lastPlan), ask("Your details"), el("p", { className: "sub", style: "margin-top:14px" }, "We need these to claim on your behalf. They are stored only if you send us your case on the next screen."), form);
+  sideScreen(handoverFrom === "plan" && lastPlan ? () => showPlan(lastPlan) : choiceScreen, ask(t("d_title")), el("p", { className: "sub", style: "margin-top:14px" }, t("d_sub")), form);
   name.focus();
 }
 
 async function termsScreen() {
-  const t = await fetch("/api/terms").then((r) => r.json()).catch(() => null);
-  if (!t) return sideScreen(detailsScreen, ask("Something went wrong"), el("p", { className: "sub" }, "Please go back and try again."));
+  view = termsScreen;
+  const tm = await fetch(`/api/terms?lang=${LANG}`).then((r) => r.json()).catch(() => null);
+  if (!tm) return sideScreen(detailsScreen, ask(t("err_title")), el("p", { className: "sub" }, t("t_fail_sub")));
   const list = (items) => el("ul", {}, ...items.map((x) => el("li", {}, x)));
   const sec = (title, node) => el("div", { className: "terms-sec" }, el("p", { className: "label quiet" }, title), node);
 
-  const sign = el("input", { className: "text", id: "signature", required: true, maxLength: 100, autocomplete: "off", placeholder: "Type your full name" });
+  const sign = el("input", { className: "text", id: "signature", required: true, maxLength: 100, autocomplete: "off", placeholder: t("sign_ph") });
   const box = (name, text, required = true) => {
     const input = el("input", { type: "checkbox", name, required });
     return [el("label", { className: "consent" }, input, text), input];
   };
-  const [cPrivacy, iPrivacy] = box("privacy", t.privacy);
-  const [cTerms, iTerms] = box("terms", "I accept the fee and the terms above.");
-  const [cMandate, iMandate] = box("mandate", "I give Fraud Aid the authorisation above.");
-  const [cShare, iShare] = box("share", t.share, false);
+  const [cPrivacy, iPrivacy] = box("privacy", tm.privacy);
+  const [cTerms, iTerms] = box("terms", t("c_terms"));
+  const [cMandate, iMandate] = box("mandate", t("c_mandate"));
+  const [cShare, iShare] = box("share", tm.share, false);
   const err = el("p", { className: "error", hidden: true, role: "alert" });
-  const go = el("button", { className: "button", type: "submit" }, "Send my case");
+  const go = el("button", { className: "button", type: "submit" }, t("send_case"));
 
   const form = el(
     "form",
     {},
-    el("p", { className: "urgent" }, t.draft_notice),
-    sec("What it costs", list(t.fee)),
-    sec("What we do", list(t.we_do)),
-    sec("What you do", list(t.you_do)),
-    sec("Your rights", list(t.rights)),
-    sec("Authorisation", el("p", { className: "mandate" }, t.mandate)),
-    el("div", { className: "field" }, el("label", { htmlFor: "signature" }, "Sign by typing your full name"), sign),
+    el("p", { className: "urgent" }, tm.draft_notice),
+    sec(t("t_costs"), list(tm.fee)),
+    sec(t("t_wedo"), list(tm.we_do)),
+    sec(t("t_youdo"), list(tm.you_do)),
+    sec(t("t_rights"), list(tm.rights)),
+    sec(t("t_auth"), el("p", { className: "mandate" }, tm.mandate)),
+    el("div", { className: "field" }, el("label", { htmlFor: "signature" }, t("sign_label")), sign),
     el("div", { className: "checks" }, cPrivacy, cTerms, cMandate, cShare),
     err,
     el("div", { className: "row" }, go),
@@ -555,9 +605,10 @@ async function termsScreen() {
     e.preventDefault();
     err.hidden = true;
     go.disabled = true;
-    go.textContent = "Sending...";
+    go.textContent = t("sending");
+    if (!lastPlan && planPromise) await planPromise;
     const body = {
-      answers: { ...answers, amount_eur: answers.amount_eur || null },
+      answers: { ...planBody(true), summary: undefined },
       summary: lastPlan ? lastPlan.summary : "",
       contact,
       consent: { privacy: iPrivacy.checked, terms: iTerms.checked, mandate: iMandate.checked, signature_name: sign.value.trim(), share_intel: iShare.checked },
@@ -572,64 +623,55 @@ async function termsScreen() {
       err.textContent = ex.message;
       err.hidden = false;
       go.disabled = false;
-      go.textContent = "Send my case";
+      go.textContent = t("send_case");
     }
   });
-  sideScreen(detailsScreen, ask("Fee and authorisation"), el("div", { style: "margin-top:24px" }, form));
+  sideScreen(detailsScreen, ask(t("t_title")), el("div", { style: "margin-top:24px" }, form));
 }
 
 function evidenceScreen() {
+  view = evidenceScreen;
   const list = el("ul", { className: "uploads" });
   const pick = el("input", { type: "file", multiple: true, accept: ".pdf,.png,.jpg,.jpeg,.heic,.txt", id: "files", className: "text" });
   const err = el("p", { className: "error", hidden: true, role: "alert" });
   pick.addEventListener("change", async () => {
     err.hidden = true;
     for (const f of [...pick.files]) {
-      const li = el("li", {}, `${f.name} `, el("span", { className: "quiet" }, "uploading..."));
+      const li = el("li", {}, `${f.name} `, el("span", { className: "quiet" }, t("uploading")));
       list.append(li);
       const fd = new FormData();
       fd.append("file", f);
       const r = await fetch(`/api/cases/${caseRef.id}/evidence`, { method: "POST", headers: { "X-Case-Token": caseRef.token }, body: fd }).catch(() => null);
-      li.lastChild.textContent = r && r.ok ? "added" : "failed";
+      li.lastChild.textContent = r && r.ok ? t("added") : t("failed");
       if (!r || !r.ok) {
-        err.textContent = r ? await errorText(r) : "Upload failed. Please try again.";
+        err.textContent = r ? await errorText(r) : t("upload_fail");
         err.hidden = false;
       }
     }
     pick.value = "";
   });
-  const done = el("button", { className: "button", type: "button" }, "Finish");
+  const done = el("button", { className: "button", type: "button" }, t("finish"));
   done.addEventListener("click", doneScreen);
-  sideScreen(
-    null,
-    ask("Add your evidence"),
-    el("p", { className: "sub", style: "margin-top:14px" }, "Screenshots of the messages, your bank statement, the transfer confirmation, the call log and your police report. PDF, PNG, JPG, HEIC or TXT, up to 10 files of 10 MB. You can add more later."),
-    el("div", { className: "field" }, el("label", { htmlFor: "files" }, "Choose files"), pick),
-    list,
-    err,
-    el("div", { className: "row" }, done),
-  );
+  sideScreen(null, ask(t("e_title")), el("p", { className: "sub", style: "margin-top:14px" }, t("e_sub")), el("div", { className: "field" }, el("label", { htmlFor: "files" }, t("e_choose")), pick), list, err, el("div", { className: "row" }, done));
 }
 
 function doneScreen() {
+  view = doneScreen;
   const link = `${location.origin}/status.html#${caseRef.id}.${caseRef.token}`;
-  const copy = el("button", { className: "button ghost", type: "button" }, "Copy link");
+  const copy = el("button", { className: "button ghost", type: "button" }, t("copy_link"));
   copy.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(link);
-      copy.textContent = "Copied";
+      copy.textContent = t("copied");
     } catch {
-      copy.textContent = "Select and copy below";
+      copy.textContent = t("copy_select");
     }
   });
-  sideScreen(
-    null,
-    ask("We have your case."),
-    el("p", { className: "ref" }, caseRef.id),
-    el("p", { className: "sub" }, `We will review it and contact you at ${contact.email}. Keep this link: it is the only way back to your case page, where you can see the status, add files or delete everything.`),
-    el("p", { className: "linkbox" }, link),
-    el("div", { className: "row" }, copy, el("a", { className: "button", href: link }, "Open my case page")),
-  );
+const firstSteps = el("button", { className: "button", type: "button" }, t("done_plan"));
+  firstSteps.addEventListener("click", () => (lastPlan ? showPlan(lastPlan) : buildPlan()));
+  sideScreen(null, ask(t("done_title")), el("p", { className: "ref" }, caseRef.id), el("p", { className: "sub" }, t("done_text", { email: contact.email })), el("p", { className: "linkbox" }, link), el("div", { className: "row" }, firstSteps, copy, el("a", { className: "button ghost", href: link }, t("open_case"))));
 }
+
+window.addEventListener("langchange", () => view && view());
 
 start();

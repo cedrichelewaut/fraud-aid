@@ -6,43 +6,6 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-TIPS = {
-    "phone_calls": [
-        "Hang up, then call your bank on the number on your card. Do not use a number the caller gives you.",
-        "Caller ID can be faked, so a familiar number proves nothing.",
-        "Banks and police never ask you to approve transfers or hand over codes by phone.",
-        "Your bank will never ask you to move money to a safe account.",
-    ],
-    "messages_and_links": [
-        "Do not click links in messages about parcels, fines or bank problems. Open the app or site yourself.",
-        "Forward suspicious messages to verdacht@safeonweb.be.",
-        "Check the sender address and web address letter by letter.",
-        "Never share itsme approvals, Digipass codes or card details, even with someone who knows your name.",
-    ],
-    "elderly_relatives": [
-        "Agree a family code word, so a call from a relative in trouble can be checked.",
-        "Help them set a low transfer limit in the banking app and turn on payment alerts.",
-        "Tell them it is fine to hang up on anyone, and that they can always call you first.",
-        "Remind them that urgency is the scammer's tool. A real problem can wait ten minutes.",
-    ],
-    "investments": [
-        "Guaranteed returns do not exist. Be wary of anyone who found you through social media or a messaging app.",
-        "Check the company on the FSMA warning list (fsma.be) before sending money.",
-        "Be careful with anyone offering to recover lost investments for an upfront fee. That is a common second scam.",
-    ],
-    "marketplaces": [
-        "Do not pay by bank transfer to people you do not know. Use the platform's own payment protection.",
-        "Never click payment links a buyer sends you. Buyers do not need your card or itsme to pay you.",
-        "If a price is too good to be true, ask for a video call with the item before paying.",
-    ],
-    "your_accounts": [
-        "Lower the transfer limit in your banking app so one mistake cannot empty your account.",
-        "Turn on payment notifications so you see every movement at once.",
-        "Use a different password for every account and a password manager.",
-        "Never let anyone control your computer or phone remotely, even if they say they are from support.",
-    ],
-}
-
 LETTERS = {
     "en": {
         "subject": "Fraud claim and request for immediate refund",
@@ -116,8 +79,11 @@ def lang_of(v) -> str:
 def money(amount: Optional[float], lang: str) -> str:
     if not amount:
         return "[amount]"
-    n = f"{amount:,.0f}"
-    return n if lang_of(lang) == "en" else n.replace(",", ".")
+    whole = float(amount).is_integer()
+    n = f"{amount:,.0f}" if whole else f"{amount:,.2f}"
+    if lang_of(lang) == "en":
+        return n
+    return n.replace(",", "\0").replace(".", ",").replace("\0", ".")  # 1.234,50
 
 
 def date_text(when: str) -> str:

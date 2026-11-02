@@ -48,11 +48,20 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 
 [tabindex="-1"]:focus { outline: none; }
 .quiet { color: var(--quiet); }
+svg.suki { display: block; flex: none; overflow: visible; }
 .label { font-size: 0.68rem; line-height: 1.4; letter-spacing: 0.09em; text-transform: uppercase; }
+.lang {
+  -webkit-appearance: none; appearance: none; font: inherit; font-size: 0.85rem; color: var(--ink); cursor: pointer;
+  background: var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%23111' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 0.8rem center;
+  border: 1px solid var(--line); border-radius: 999px; padding: 0.42rem 2.1rem 0.42rem 1rem; transition: border-color 120ms linear;
+}
+.lang:hover { border-color: var(--ink); }
+.lang:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .region { font-size: 0.68rem; letter-spacing: 0.09em; text-transform: uppercase; }
 
 .bar { display: flex; align-items: center; justify-content: space-between; padding: 22px 28px; }
-.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--serif); font-size: 1.45rem; letter-spacing: -0.01em; }
+.brand img { transform: translateY(-0.121em); } /* the cross's ink is centred on the ink of the capital F, measured in pixels */
+.brand { display: inline-flex; align-items: center; gap: 9px; text-decoration: none; font-family: var(--serif); font-size: 1.45rem; letter-spacing: -0.01em; }
 
 main { flex: 1; width: 100%; max-width: var(--col); margin: 0 auto; padding: 0 20px 56px; }
 
@@ -71,7 +80,8 @@ main { flex: 1; width: 100%; max-width: var(--col); margin: 0 auto; padding: 0 2
 .ask { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
 .ask img { display: block; }
 h1.big, h2.big { font-family: var(--serif); font-weight: 300; letter-spacing: -0.025em; line-height: 1.04; text-wrap: balance; }
-h1.big { font-size: clamp(3rem, 8vw, 5rem); }
+h1.big { font-size: min(3.4rem, 8.6vw); white-space: nowrap; }
+h1.big.q { font-size: clamp(2.1rem, 5.6vw, 3.4rem); max-width: 22ch; line-height: 1.08; }
 h2.big { font-size: clamp(2rem, 5vw, 3rem); }
 .sub { font-size: 1.1rem; color: var(--quiet); max-width: 30rem; text-wrap: balance; }
 .hint { font-size: 0.9rem; color: var(--quiet); }
@@ -184,6 +194,18 @@ textarea.text { resize: vertical; min-height: 6.5rem; }
 .checks { display: grid; gap: 12px; margin-top: 22px; }
 .uploads { list-style: none; padding: 0; margin: 14px 0 0; font-size: 0.92rem; }
 .uploads li { padding: 6px 0; border-top: 1px solid var(--rule); }
+.tipsbody { margin-top: 26px; }
+.tipintro { margin-bottom: 8px; max-width: 36rem; color: #333; }
+.tip { border-top: 1px solid var(--rule); padding: 20px 0 22px; }
+.tip h3 { font-family: var(--serif); font-size: 1.4rem; letter-spacing: -0.012em; line-height: 1.2; margin-bottom: 6px; }
+.tip p { font-size: 0.97rem; max-width: 40rem; }
+.tipsbody + .row { margin-top: 28px; }
+.choice { position: relative; }
+.choice .opt { padding-right: 3.6rem; }
+.info { position: absolute; top: 0.8rem; right: 0.95rem; z-index: 2; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-family: var(--serif); font-style: italic; font-size: 1rem; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0; transition: border-color 120ms linear; }
+.info:hover, .info[aria-expanded="true"] { border-color: var(--ink); }
+.infobox { margin-top: 8px; border: 1px solid var(--ink); border-radius: 12px; padding: 0.95rem 1.15rem; background: var(--paper); }
+.infobox p { font-size: 0.93rem; }
 .tips { margin-top: 24px; padding-left: 1.1rem; }
 .tips li { margin-top: 0.7em; }
 
@@ -192,10 +214,55 @@ textarea.text { resize: vertical; min-height: 6.5rem; }
   .verdict .amount { font-size: 2.6rem; }
 }
 
+/* Background marks borrowed from the drawing of the cat, spread evenly over the whole screen and behind
+   the content. Fewer of them on smaller windows. Reading pages (the plan, the case page) show them fainter. */
+.deco { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; opacity: .5; transition: opacity 200ms linear; }
+.deco .d { position: absolute; display: block; overflow: visible; }
+.deco .k2, .deco .k3 { display: none; }
+@media (min-width: 560px) { .deco .k2 { display: block; } }
+@media (min-width: 960px) { .deco .k3 { display: block; } }
+.reading .deco { opacity: .3; }
+.bar, main, .foot { position: relative; z-index: 1; }
+/* a soft white halo, so a mark fades out right around the letters instead of running under them */
+main, .foot { text-shadow: 0 0 5px var(--paper), 0 0 5px var(--paper), 0 0 10px var(--paper); }
+.doc header, .linkbox { text-shadow: none; }
+/* blocks that hold text or inputs sit on white, so nothing shows through them */
+.doc, .help, .urgent, .linkbox, .opt, .chip, .text, .pill span { background: var(--paper); }
+.doc header, .linkbox { background: var(--soft); }
+.doc pre { background: var(--paper); }
+
+/* Print and PDF. Kept deliberately plain, because print engines differ: no flex or grid for the page or the
+   steps (they break across pages badly in some browsers), no clipped boxes, no shadows, no negative letter
+   spacing and system fonts instead of the variable web font. */
 @media print {
-  .bar, .foot, .top, .actions, .help, .doc button, .noprint { display: none !important; }
-  main { max-width: none; }
-  .step { break-inside: avoid; }
+  @page { margin: 16mm 15mm; }
+  :root { --serif: Georgia, "Times New Roman", serif; }
+  html { font-size: 11.5pt; background: #fff; }
+  body { display: block; min-height: 0; background: #fff; font-family: Helvetica, Arial, sans-serif; line-height: 1.45; }
+  *, *::before, *::after { text-shadow: none !important; letter-spacing: normal !important; transition: none !important; animation: none !important; }
+  .deco, .bar, .foot, .top, .actions, .help, .doc button, .noprint, .lang { display: none !important; }
+
+  main, .screen { display: block; max-width: none; padding: 0; margin: 0; }
+  .ask { display: block; }
+  .ask img { margin-bottom: 8pt; }
+  h2.big { font-size: 26pt; line-height: 1.15; font-weight: 400; text-wrap: initial; }
+  .verdict .headline { font-size: 18pt; }
+  .verdict .amount { font-size: 28pt; font-weight: 400; }
+  .urgent { border-radius: 4pt; }
+
+  .steps { margin-top: 18pt; }
+  .step { display: block; overflow: visible; padding: 12pt 0; border-top: 0.5pt solid #999; }
+  .step:first-child { border-top: 1pt solid #000; }
+  .step .n { float: left; width: 24pt; font-size: 16pt; font-weight: 400; color: #555; }
+  .step > div { margin-left: 28pt; }
+  .step h3 { font-size: 15pt; font-weight: 400; break-after: avoid; }
+  .step ul { padding-left: 14pt; }
+  .step li { break-inside: avoid; }
+
+  .doc { overflow: visible; border-radius: 4pt; border: 0.5pt solid #777; break-inside: avoid; margin-top: 10pt; }
+  .doc header { background: #f2f2f2; }
+  .doc pre { white-space: pre-wrap; overflow: visible; font-family: "Courier New", Courier, monospace; font-size: 9.5pt; line-height: 1.45; }
+  a { color: #000; text-decoration: none; }
 }
 
 @media (prefers-reduced-motion: reduce) { .typing i { animation: none; opacity: 0.6; } .progress i { transition: none; } }

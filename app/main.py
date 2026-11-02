@@ -10,7 +10,8 @@ from pydantic import BaseModel, EmailStr, Field
 
 from . import cases
 from .plan import Answers, Plan, build_plan, summarize
-from .tools import TIPS, save_waitlist
+from .i18n import LANGS, TIPS, pick
+from .tools import save_waitlist
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
@@ -35,14 +36,22 @@ def health() -> dict:
 
 
 @app.get("/api/tips")
-def tips() -> dict:
-    return TIPS
+def tips(lang: str = "en") -> dict:
+    return pick(TIPS, lang if lang in LANGS else "en")
 
 
 @app.post("/api/plan", response_model=Plan)
 async def plan(a: Answers) -> Plan:
     # The free flow never stores anything: answers are used to build the response and dropped.
-    return build_plan(a, await summarize(a))
+    summary = (a.summary or "").strip() or await summarize(a)
+    return build_plan(a, summary)
+
+
+@app.post("/api/verdict")
+def verdict(a: Answers) -> dict:
+    """Quick check, without the AI step: is this a case Fraud Aid can take on?"""
+    p = build_plan(a, "")
+    return {"level": p.verdict.level, "can_offer_help": p.can_offer_help}
 
 
 @app.post("/api/waitlist")
@@ -70,8 +79,8 @@ def _guard(fn, *args):
 
 
 @app.get("/api/terms")
-def terms() -> dict:
-    return cases.TERMS
+def terms(lang: str = "en") -> dict:
+    return cases.terms(lang if lang in LANGS else "en")
 
 
 @app.post("/api/cases")

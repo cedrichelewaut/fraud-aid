@@ -19,6 +19,7 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from . import tools
+from .i18n import TERMS, pick
 from .plan import Answers, build_plan
 
 TERMS_VERSION = "draft-2026-11"
@@ -36,35 +37,8 @@ MAX_FILES = 10
 MAX_BYTES = 10 * 1024 * 1024
 ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".heic", ".txt"}
 
-TERMS = {
-    "version": TERMS_VERSION,
-    "draft_notice": "Draft terms for the pilot. They have not been reviewed by a lawyer yet.",
-    "fee": [
-        "20% plus VAT of the money you recover thanks to Fraud Aid.",
-        "A further 10% plus VAT only if your case has to go to Ombudsfin or to legal action.",
-        "Nothing if nothing is recovered.",
-        "We never charge for money your bank had already refunded to you before we sent your claim.",
-    ],
-    "we_do": [
-        "Send your claim to your bank and ask them to recall the payment from the receiving bank.",
-        "Follow up, answer the bank's questions and keep you updated.",
-        "Escalate to Ombudsfin if the bank refuses. If your case needs a lawyer, we agree it with you first.",
-    ],
-    "you_do": [
-        "Give us true and complete information and the documents we ask for.",
-        "Tell us at once if your bank contacts you or refunds you directly.",
-    ],
-    "rights": [
-        "You can withdraw before we send your claim and pay nothing.",
-        "You can delete your case and all your files at any time from your case page.",
-    ],
-    "privacy": "We store your answers, details and files to handle your claim. Only Fraud Aid staff and a partner lawyer working on your case can see them.",
-    "mandate": (
-        "I authorise Fraud Aid to act on my behalf to claim a refund for the fraud I described: to contact and negotiate with my bank, "
-        "the receiving bank and Ombudsfin, and to send and receive correspondence about it. I remain the owner of my claim."
-    ),
-    "share": "Optional: share the scammer's identifiers (IBAN, phone number, website) and the scam pattern, without my name, with banks and the police to help stop this fraud.",
-}
+def terms(lang: str = "en") -> dict:
+    return {"version": TERMS_VERSION, **pick(TERMS, lang)}
 
 
 def _now() -> str:
@@ -197,7 +171,7 @@ def victim_view(case_id: str, token: str) -> dict:
     with db() as con:
         row = _check(con, case_id, token)
         files = con.execute("SELECT id, original_name, size, uploaded_at FROM evidence WHERE case_id = ? ORDER BY uploaded_at", (case_id,)).fetchall()
-        events = con.execute("SELECT at, note FROM events WHERE case_id = ? AND public = 1 ORDER BY id", (case_id,)).fetchall()
+        events = con.execute("SELECT at, kind, note FROM events WHERE case_id = ? AND public = 1 ORDER BY id", (case_id,)).fetchall()
         return {
             "id": row["id"],
             "created_at": row["created_at"],
@@ -277,7 +251,7 @@ def admin_set_status(case_id: str, status: str, note: str) -> None:
         if not con.execute("SELECT 1 FROM cases WHERE id = ?", (case_id,)).fetchone():
             raise NotFound()
         con.execute("UPDATE cases SET status = ? WHERE id = ?", (status, case_id))
-        _event(con, case_id, "status", note.strip()[:300] or STATUS_LABEL[status])
+        _event(con, case_id, "status", note.strip()[:300] or f"status:{status}")
 
 
 def admin_file(case_id: str, evidence_id: str) -> tuple[Path, str, str]:
