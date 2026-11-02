@@ -501,15 +501,7 @@ function choiceScreen() {
     startPlanFetch();
     detailsScreen();
   });
-  // the small "i": how Fraud Aid is paid
-  const info = el("button", { className: "info", type: "button", ariaLabel: t("info_label") }, "i");
-  info.setAttribute("aria-expanded", "false");
-  const box = el("div", { className: "infobox", hidden: true }, el("p", {}, t("info_fee")));
-  info.addEventListener("click", () => {
-    box.hidden = !box.hidden;
-    info.setAttribute("aria-expanded", String(!box.hidden));
-  });
-  const list = el("div", { className: "options" }, diy, el("div", { className: "choice" }, help, info, box));
+  const list = el("div", { className: "options" }, diy, help);
   sideScreen(goBack, ask(t("ch_title")), list, el("p", { className: "hint", style: "margin-top:22px" }, t("ch_note")));
 }
 

@@ -200,12 +200,6 @@ textarea.text { resize: vertical; min-height: 6.5rem; }
 .tip h3 { font-family: var(--serif); font-size: 1.4rem; letter-spacing: -0.012em; line-height: 1.2; margin-bottom: 6px; }
 .tip p { font-size: 0.97rem; max-width: 40rem; }
 .tipsbody + .row { margin-top: 28px; }
-.choice { position: relative; }
-.choice .opt { padding-right: 3.6rem; }
-.info { position: absolute; top: 0.8rem; right: 0.95rem; z-index: 2; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-family: var(--serif); font-style: italic; font-size: 1rem; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0; transition: border-color 120ms linear; }
-.info:hover, .info[aria-expanded="true"] { border-color: var(--ink); }
-.infobox { margin-top: 8px; border: 1px solid var(--ink); border-radius: 12px; padding: 0.95rem 1.15rem; background: var(--paper); }
-.infobox p { font-size: 0.93rem; }
 .tips { margin-top: 24px; padding-left: 1.1rem; }
 .tips li { margin-top: 0.7em; }
 
