@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Back office | Fraud Aid</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    main { max-width: 1000px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 10px 8px; border-top: 1px solid var(--rule); }
+    th { font-weight: 400; }
+    tr.row-link { cursor: pointer; } tr.row-link:hover td { background: var(--soft); }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+    @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+    dl { display: grid; grid-template-columns: 8rem 1fr; gap: 6px 12px; margin: 10px 0 0; font-size: 0.92rem; }
+    dt { color: var(--quiet); } dd { margin: 0; overflow-wrap: anywhere; }
+    select { font: inherit; padding: 0.6rem 0.8rem; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="/" aria-label="Fraud Aid, home"><img src="/logo.svg" alt="" width="34" height="34"><span>Fraud Aid</span></a>
+    <span class="region quiet">Back office</span>
+  </header>
+  <main id="app"></main>
+  <footer class="foot"><p class="quiet fine">Contains personal and financial data. Pilot only.</p></footer>
+  <script src="/admin.js"></script>
+</body>
+</html>

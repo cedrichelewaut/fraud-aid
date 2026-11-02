@@ -1,6 +1,7 @@
 """Static content and document builders: tips, claim letter, police report, waitlist."""
 
 import json
+import os
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -105,7 +106,7 @@ FALLBACK_STORY = {
     "fr": "J'ai été victime d'une escroquerie ({how}). J'ai perdu {amount} EUR.",
 }
 
-DATA = Path(__file__).resolve().parent.parent / "data"
+DATA = Path(os.getenv("FRAUD_AID_DATA") or Path(__file__).resolve().parent.parent / "data")
 
 
 def lang_of(v) -> str:

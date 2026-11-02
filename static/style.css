@@ -173,6 +173,17 @@ textarea.text { resize: vertical; min-height: 6.5rem; }
 .consent { display: flex; gap: 8px; align-items: flex-start; font-size: 0.8rem; color: var(--quiet); }
 .consent input { margin-top: 4px; accent-color: var(--ink); }
 
+.timeline { list-style: none; padding: 0; margin: 8px 0 0; font-size: 0.95rem; }
+.timeline li { display: grid; gap: 2px; padding: 10px 0; border-top: 1px solid var(--rule); }
+.ref { font-family: var(--serif); font-weight: 300; font-size: 3rem; letter-spacing: 0.02em; margin: 10px 0 6px; }
+.linkbox { margin-top: 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.72rem; overflow-wrap: anywhere; background: var(--soft); }
+.terms-sec { margin-top: 22px; }
+.terms-sec ul { margin: 6px 0 0; padding-left: 1.1rem; font-size: 0.95rem; }
+.terms-sec li { margin-top: 0.4em; }
+.mandate { margin-top: 6px; font-size: 0.95rem; border-left: 2px solid var(--ink); padding-left: 14px; }
+.checks { display: grid; gap: 12px; margin-top: 22px; }
+.uploads { list-style: none; padding: 0; margin: 14px 0 0; font-size: 0.92rem; }
+.uploads li { padding: 6px 0; border-top: 1px solid var(--rule); }
 .tips { margin-top: 24px; padding-left: 1.1rem; }
 .tips li { margin-top: 0.7em; }
 

@@ -411,6 +411,7 @@ function docBlock(doc) {
 }
 
 function showPlan(plan) {
+  lastPlan = plan;
   const v = plan.verdict;
   const head = el("div", { className: "head" }, el("div", { className: "ask" }, el("img", { src: "/logo.svg", alt: "", width: 44, height: 44 }), el("h2", { className: "big", tabIndex: -1 }, "Here is your plan")));
   const wrap = el("div", { className: "plan" }, head);
@@ -456,20 +457,179 @@ function showPlan(plan) {
   wrap.querySelector("h2")?.focus({ preventScroll: true });
 }
 
+// ---- Hand the case over to Fraud Aid ---------------------------------------------------------
+
+let lastPlan = null;
+let contact = {};
+let caseRef = null;
+
 function helpBox() {
-  const email = el("input", { className: "text", type: "email", placeholder: "you@example.com", ariaLabel: "Email address", required: true });
-  const box = el("input", { type: "checkbox", required: true });
-  const msg = el("p", { className: "hint" });
-  const btn = el("button", { className: "button", type: "submit" }, "Join the waitlist");
-  const form = el("form", {}, email, el("label", { className: "consent" }, box, "I agree that Fraud Aid stores my email to contact me about taking on my claim."), el("div", { className: "row", style: "margin-top:0" }, btn), msg);
+  const go = el("button", { className: "button", type: "button" }, "Let Fraud Aid handle it");
+  go.addEventListener("click", detailsScreen);
+  return el(
+    "div",
+    { className: "help" },
+    el("h3", {}, "Want us to handle it?"),
+    el("p", {}, "Give us your case and we process the claim for you: we deal with your bank, follow up and escalate. You pay 20% plus VAT of what you recover, and nothing if you recover nothing."),
+    el("div", { className: "row", style: "margin-top:18px" }, go),
+  );
+}
+
+function sideScreen(backFn, ...content) {
+  const top = el("div", { className: "top" });
+  if (backFn) {
+    const back = el("button", { className: "back", type: "button" }, "← Back");
+    back.addEventListener("click", backFn);
+    top.append(back);
+  }
+  app.replaceChildren(top, el("section", { className: "screen" }, ...content));
+  window.scrollTo(0, 0);
+  app.querySelector("h2")?.focus({ preventScroll: true });
+}
+
+function field(id, label, props = {}) {
+  const input = el("input", { className: "text", id, name: id, ...props });
+  return [el("div", { className: "field" }, el("label", { htmlFor: id }, label), input), input];
+}
+
+async function errorText(r) {
+  const body = await r.json().catch(() => ({}));
+  if (typeof body.detail === "string") return body.detail;
+  if (Array.isArray(body.detail) && body.detail[0]) {
+    const d = body.detail[0];
+    return `${(d.loc || []).slice(-1)[0] || "Input"}: ${String(d.msg || "invalid").replace(/^Value error, /, "")}`;
+  }
+  return "Something went wrong. Please try again.";
+}
+
+function detailsScreen() {
+  const [fName, name] = field("full_name", "Full name", { autocomplete: "name", required: true, maxLength: 100, value: contact.full_name || "" });
+  const [fEmail, email] = field("email", "Email", { type: "email", autocomplete: "email", required: true, value: contact.email || "" });
+  const [fPhone, phone] = field("phone", "Phone", { type: "tel", autocomplete: "tel", required: true, maxLength: 30, value: contact.phone || "" });
+  const [fAddr, addr] = field("address", "Address", { autocomplete: "street-address", required: true, maxLength: 200, placeholder: "Street, number, postcode, city", value: contact.address || "" });
+  const [fIban, iban] = field("iban", "IBAN of the account that was charged", { required: true, maxLength: 40, placeholder: "BE00 0000 0000 0000", value: contact.iban || "" });
+  const err = el("p", { className: "error", hidden: true, role: "alert" });
+  const form = el("form", {}, fName, fEmail, fPhone, fAddr, fIban, err, el("div", { className: "row" }, el("button", { className: "button", type: "submit" }, "Continue")));
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    contact = { full_name: name.value.trim(), email: email.value.trim(), phone: phone.value.trim(), address: addr.value.trim(), iban: iban.value.trim() };
+    termsScreen();
+  });
+  sideScreen(() => showPlan(lastPlan), ask("Your details"), el("p", { className: "sub", style: "margin-top:14px" }, "We need these to claim on your behalf. They are stored only if you send us your case on the next screen."), form);
+  name.focus();
+}
+
+async function termsScreen() {
+  const t = await fetch("/api/terms").then((r) => r.json()).catch(() => null);
+  if (!t) return sideScreen(detailsScreen, ask("Something went wrong"), el("p", { className: "sub" }, "Please go back and try again."));
+  const list = (items) => el("ul", {}, ...items.map((x) => el("li", {}, x)));
+  const sec = (title, node) => el("div", { className: "terms-sec" }, el("p", { className: "label quiet" }, title), node);
+
+  const sign = el("input", { className: "text", id: "signature", required: true, maxLength: 100, autocomplete: "off", placeholder: "Type your full name" });
+  const box = (name, text, required = true) => {
+    const input = el("input", { type: "checkbox", name, required });
+    return [el("label", { className: "consent" }, input, text), input];
+  };
+  const [cPrivacy, iPrivacy] = box("privacy", t.privacy);
+  const [cTerms, iTerms] = box("terms", "I accept the fee and the terms above.");
+  const [cMandate, iMandate] = box("mandate", "I give Fraud Aid the authorisation above.");
+  const [cShare, iShare] = box("share", t.share, false);
+  const err = el("p", { className: "error", hidden: true, role: "alert" });
+  const go = el("button", { className: "button", type: "submit" }, "Send my case");
+
+  const form = el(
+    "form",
+    {},
+    el("p", { className: "urgent" }, t.draft_notice),
+    sec("What it costs", list(t.fee)),
+    sec("What we do", list(t.we_do)),
+    sec("What you do", list(t.you_do)),
+    sec("Your rights", list(t.rights)),
+    sec("Authorisation", el("p", { className: "mandate" }, t.mandate)),
+    el("div", { className: "field" }, el("label", { htmlFor: "signature" }, "Sign by typing your full name"), sign),
+    el("div", { className: "checks" }, cPrivacy, cTerms, cMandate, cShare),
+    err,
+    el("div", { className: "row" }, go),
+  );
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    btn.disabled = true;
-    const r = await fetch("/api/waitlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.value, consent: box.checked, country: answers.country, note: "wants help" }) }).catch(() => null);
-    msg.textContent = r && r.ok ? "Thank you, you are on the list. We will email you when we open." : "That did not work. Please check your email address.";
-    btn.disabled = !!(r && r.ok);
+    err.hidden = true;
+    go.disabled = true;
+    go.textContent = "Sending...";
+    const body = {
+      answers: { ...answers, amount_eur: answers.amount_eur || null },
+      summary: lastPlan ? lastPlan.summary : "",
+      contact,
+      consent: { privacy: iPrivacy.checked, terms: iTerms.checked, mandate: iMandate.checked, signature_name: sign.value.trim(), share_intel: iShare.checked },
+    };
+    try {
+      const r = await fetch("/api/cases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error(await errorText(r));
+      const j = await r.json();
+      caseRef = { id: j.case_id, token: j.token };
+      evidenceScreen();
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+      go.disabled = false;
+      go.textContent = "Send my case";
+    }
   });
-  return el("div", { className: "help" }, el("h3", {}, "Want us to handle it?"), el("p", {}, "Fraud Aid can take your claim on. We only take a share if you get your money back. Leave your email and we will contact you when we open."), form);
+  sideScreen(detailsScreen, ask("Fee and authorisation"), el("div", { style: "margin-top:24px" }, form));
+}
+
+function evidenceScreen() {
+  const list = el("ul", { className: "uploads" });
+  const pick = el("input", { type: "file", multiple: true, accept: ".pdf,.png,.jpg,.jpeg,.heic,.txt", id: "files", className: "text" });
+  const err = el("p", { className: "error", hidden: true, role: "alert" });
+  pick.addEventListener("change", async () => {
+    err.hidden = true;
+    for (const f of [...pick.files]) {
+      const li = el("li", {}, `${f.name} `, el("span", { className: "quiet" }, "uploading..."));
+      list.append(li);
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch(`/api/cases/${caseRef.id}/evidence`, { method: "POST", headers: { "X-Case-Token": caseRef.token }, body: fd }).catch(() => null);
+      li.lastChild.textContent = r && r.ok ? "added" : "failed";
+      if (!r || !r.ok) {
+        err.textContent = r ? await errorText(r) : "Upload failed. Please try again.";
+        err.hidden = false;
+      }
+    }
+    pick.value = "";
+  });
+  const done = el("button", { className: "button", type: "button" }, "Finish");
+  done.addEventListener("click", doneScreen);
+  sideScreen(
+    null,
+    ask("Add your evidence"),
+    el("p", { className: "sub", style: "margin-top:14px" }, "Screenshots of the messages, your bank statement, the transfer confirmation, the call log and your police report. PDF, PNG, JPG, HEIC or TXT, up to 10 files of 10 MB. You can add more later."),
+    el("div", { className: "field" }, el("label", { htmlFor: "files" }, "Choose files"), pick),
+    list,
+    err,
+    el("div", { className: "row" }, done),
+  );
+}
+
+function doneScreen() {
+  const link = `${location.origin}/status.html#${caseRef.id}.${caseRef.token}`;
+  const copy = el("button", { className: "button ghost", type: "button" }, "Copy link");
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      copy.textContent = "Copied";
+    } catch {
+      copy.textContent = "Select and copy below";
+    }
+  });
+  sideScreen(
+    null,
+    ask("We have your case."),
+    el("p", { className: "ref" }, caseRef.id),
+    el("p", { className: "sub" }, `We will review it and contact you at ${contact.email}. Keep this link: it is the only way back to your case page, where you can see the status, add files or delete everything.`),
+    el("p", { className: "linkbox" }, link),
+    el("div", { className: "row" }, copy, el("a", { className: "button", href: link }, "Open my case page")),
+  );
 }
 
 start();
