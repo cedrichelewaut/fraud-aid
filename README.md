@@ -66,6 +66,14 @@ venv/bin/python tests/try_languages.py # live: the plan and the AI statement in 
 venv/bin/python tests/try_plan.py     # live check against the running server and the local model
 ```
 
+## Static demo
+
+`demo/build_demo.py` builds a copy of the app that needs no server: the same Python (`app/`) runs in the browser with Pyodide, `fetch("/api/...")` is answered by `demo/demo_api.py` through `demo/demo.js`, and cases are stored in IndexedDB on the visitor's device. There is no AI statement step in the demo (the user's own words are used). Back office token: `demo`. Live at https://cedrichelewaut.be/fraud-aid-demo/.
+
+```bash
+python3 demo/build_demo.py --pyodide /path/to/pyodide-0.27.7 --out /path/to/site/public/fraud-aid-demo
+```
+
 ## Before this goes public
 
 - Have a Belgian lawyer review the rules and the wording in `BASIS` and `HEADLINES` (`app/assess.py`). They are placeholders based on desk research (see `~/startup-ideas/victim-recovery-research.md`).
